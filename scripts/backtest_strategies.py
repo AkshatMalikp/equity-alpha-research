@@ -4,10 +4,14 @@ Run from the repo root (after combine_signals.py):
     DATA=data/processed_crsp PRED=results/step6_crsp RESULTS=results/step7_crsp \
         PYTHONPATH=src python scripts/backtest_strategies.py
 
-Pre-registered main setting (fixed before looking at results):
+Main setting:
   - monthly rebalance, long top fifth / short bottom fifth, $1 long and $1 short
   - cost = half the quoted bid-ask spread (CRSP, trailing 21 days), borrow fee 25 bps a year
-Everything else (flat costs, lag, fund size, weights, subperiods) is a robustness check.
+  - execution one trading day after the signal (LAG=1): the signal uses closing prices,
+    which are only final after the closing auction, so trading at that same close is not
+    achievable. Same-close execution (LAG=0) is reported as an optimistic benchmark.
+Everything else (flat costs, timing, fund size, weights, subperiods) is a robustness check.
+Every section of the output uses LAG; set LAG=0 to reproduce the old same-close numbers.
 """
 import os
 from pathlib import Path
@@ -20,9 +24,11 @@ PROCESSED = Path(os.environ.get("DATA", "data/processed_crsp"))
 PRED = Path(os.environ.get("PRED", "results/step6_crsp"))
 OUT = Path(os.environ.get("RESULTS", "results/step7_crsp"))
 STRATEGIES = ["reversal_only", "equal", "ic_weighted", "ridge", "lgbm"]
+LAG = int(os.environ.get("LAG", "1"))          # trading days between signal close and trade
 
 
 def run(pred, rets, cost, weights_fn=bt.quintile_weights, **kw):
+    kw.setdefault("lag", LAG)
     w = {d: weights_fn(pred.loc[d]) for d in pred.index}
     return bt.simulate(w, rets, cost_rate=cost, **kw)
 
@@ -65,14 +71,19 @@ def main():
     sens = pd.DataFrame(sens).T
     sens.to_csv(OUT / "cost_sensitivity.csv")
 
-    # ------------------------------------------------------------ 3. one-day implementation lag
-    lag = {}
-    for s, p in preds.items():
-        lag[s] = {"gross Sharpe, lag 0": main_rows[s]["sharpe_gross"],
-                  "gross Sharpe, lag 1": bt.performance(run(p, rets, 0.0, lag=1))["sharpe_gross"],
-                  "net Sharpe, lag 1": bt.performance(run(p, rets, hs, lag=1))["sharpe_net"]}
-    lag = pd.DataFrame(lag).T
-    lag.to_csv(OUT / "lag_test.csv")
+    # ------------------------------------------------------------ 3. execution timing
+    timing = {}
+    for s_, p in preds.items():
+        row = {}
+        for L in [0, 1, 2]:
+            g = main_rows[s_] if L == LAG else bt.performance(run(p, rets, hs, lag=L))
+            tag = "same close" if L == 0 else f"lag {L}"
+            row[f"gross ret, {tag}"] = g["gross_return"] * 100
+            row[f"gross SR, {tag}"] = g["sharpe_gross"]
+            row[f"net SR, {tag}"] = g["sharpe_net"]
+        timing[s_] = row
+    timing = pd.DataFrame(timing).T
+    timing.to_csv(OUT / "timing.csv")
 
     # ------------------------------------------------------------ 4. fund size (market impact)
     cap_rows = {}
@@ -115,7 +126,7 @@ def main():
 
     # ------------------------------------------------------------ print
     pd.set_option("display.width", 220)
-    print("\n=== 1. Main result: quintile long-short, half-spread costs, 25 bps borrow ===")
+    print(f"\n=== 1. Main result: quintile long-short, half-spread costs, 25 bps borrow, trade {LAG} day(s) after signal ===")
     show = pct(main_tab, ["gross_return", "net_return", "volatility", "max_drawdown", "hit_rate_monthly", "cost_per_year"])
     show["traded_per_year"] = show["traded_per_year"].round(1)
     show["breakeven_bps"] = show["breakeven_bps"].round(1)
@@ -124,8 +135,8 @@ def main():
 
     print("\n=== 2. Net Sharpe at flat one-way costs ===")
     print(sens.round(2).to_string())
-    print("\n=== 3. One-day implementation lag (bid-ask bounce check) ===")
-    print(lag.round(2).to_string())
+    print("\n=== 3. Execution timing: same close (optimistic) vs 1 and 2 days later (gross ret in %) ===")
+    print(timing.round(2).to_string())
     print("\n=== 4. Net Sharpe by fund size (half-spread + square-root impact) ===")
     print(cap.round(2).to_string())
     print("\n=== 5. Net Sharpe: quintile vs rank weights ===")
