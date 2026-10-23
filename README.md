@@ -4,10 +4,10 @@
 
 ## Answer
 
-On survivorship-free CRSP data for the S&P 500, 1997–2025:
+On point-in-time CRSP data for the S&P 500, 1997–2025, including delisted firms:
 
 1. **Of 8 published signals, only short-term reversal survives multiple-testing correction** (rank-IC t = 3.35, Holm-adjusted p = 0.007). Momentum, the 52-week high, Amihud illiquidity and four low-risk signals do not.
-2. **Reversal does not survive realistic trading.** It earns 3.4% a year before costs, but trades 38 times its capital a year and breaks even at 9 bps per dollar traded. Net of quoted spreads its Sharpe ratio is 0.11 (t = 0.55). With market impact for a $100M fund it turns to −0.53. Its Fama-French five-factor plus momentum alpha is 0.05% a year (t = 0.02).
+2. **Reversal does not survive realistic trading.** Trading the day after the signal (the closing price is only known after the close), it earns 2.4% a year before costs and 0.4% after quoted spreads: net Sharpe 0.03 (t = 0.09). It trades 38 times its capital a year and breaks even at 6.3 bps per dollar traded. With market impact for a $100M fund the net Sharpe is −0.60, and its Fama-French five-factor plus momentum alpha is −1.0% a year (t = −0.43). Even under the optimistic assumption of trading at the signal's own close, it nets only 1.4% a year (Sharpe 0.11).
 3. **Machine learning does not help here.** Out of sample (2002–2025), LightGBM's monthly IC is not significantly higher than ridge's (paired t = 1.48), and no combination of the eight signals beats reversal alone.
 4. **Free data gives the wrong answer.** On Yahoo Finance data, which drops companies that failed, every low-risk signal looks 3–4 percentage points a year worse than on CRSP over the same years.
 
@@ -51,7 +51,7 @@ Choices fixed **before** looking at results:
 
 - **Single-signal tests** (1997–2025): daily 21-day rank IC with Newey-West standard errors (20 lags, because forward returns overlap); monthly quintile portfolios; univariate and multivariate Fama-MacBeth regressions. Significance bar **|t| > 3** (Harvey, Liu & Zhu 2016), plus Holm and Benjamini-Hochberg corrections over the 8 signals, and a deflated Sharpe ratio for the best spread.
 - **Combination** (test years 2002–2025): month-end ranks predict next month's cross-sectionally ranked return. Expanding walk-forward with one refit per year; training rows are **purged** so no label period overlaps the test year. Equal weight, IC-weighted, ridge and LightGBM (shallow, heavily regularised). Ridge's penalty and LightGBM's tree count are tuned only on the last 20% of each training window.
-- **Backtest**: monthly rebalance, long the top fifth and short the bottom fifth ($1 each side), positions drift between rebalances. Costs = half the quoted CRSP bid-ask spread (trailing 21 days) per dollar traded, plus a 25 bps a year borrow fee. Robustness: flat costs 0–30 bps, one-day implementation lag, square-root market impact at $100M and $1B, rank weights, three subperiods, factor regression.
+- **Backtest**: monthly rebalance, long the top fifth and short the bottom fifth ($1 each side), positions drift between rebalances, trades execute at the close one day after the signal. Costs = half the quoted CRSP bid-ask spread (trailing 21 days) per dollar traded, plus a 25 bps a year borrow fee. Robustness: flat costs 0–30 bps, execution at the signal's own close or two days later, square-root market impact at $100M and $1B, rank weights, three subperiods, factor regression.
 
 Every signal has an automated **lookahead test** (scrambling all data after day *t* must not change any value up to *t*), and every walk-forward model has one too (scrambling future labels must not change a year's predictions). 58 tests in total.
 
@@ -114,37 +114,47 @@ Paired IC differences: LightGBM − ridge +0.008 (t = 1.48); LightGBM − equal 
 
 ![Cumulative](figures/08_cumulative_net.png)
 
+Main setting: rebalance at each month-end, trading at the **next day's close** after the signal (a signal built from closing prices cannot be traded at that same close).
+
 | Monthly long-short, 2002–2025 | Gross | Net | Net Sharpe | Max drawdown | Traded / yr | Break-even |
 |---|---|---|---|---|---|---|
-| **Reversal alone** | 3.4% | 1.4% | 0.11 (t = 0.55) | −37% | 38× | 9.1 bps |
-| LightGBM | 1.1% | −0.5% | −0.04 | −43% | 31× | 3.6 bps |
-| Equal weight | 0.2% | −0.9% | −0.04 | −80% | 18× | 0.9 bps |
-| Ridge | −1.0% | −2.6% | −0.15 | −68% | 32× | — |
-| IC-weighted | −1.9% | −3.3% | −0.15 | −82% | 24× | — |
+| **Reversal alone** | 2.4% | 0.4% | 0.03 (t = 0.09) | −38% | 38× | 6.3 bps |
+| LightGBM | 0.3% | −1.4% | −0.11 | −51% | 31× | 0.8 bps |
+| Equal weight | −1.1% | −2.2% | −0.09 | −85% | 18× | — |
+| Ridge | −2.1% | −3.7% | −0.21 | −78% | 32× | — |
+| IC-weighted | −3.3% | −4.7% | −0.20 | −87% | 24× | — |
+
+Execution timing for reversal (same close is an optimistic benchmark, not achievable as specified):
+
+| Trade at | Gross return | Gross Sharpe | Net Sharpe |
+|---|---|---|---|
+| Signal's own close | 3.4% | 0.26 | 0.11 |
+| **Next day's close (main)** | **2.4%** | **0.18** | **0.03** |
+| Two days later | 2.2% | 0.16 | 0.01 |
 
 ![Cost curve](figures/09_cost_curve.png)
 ![Capacity](figures/10_capacity.png)
 
 For reversal:
 
-- **Costs.** The median quoted half-spread across stocks is 1.9 bps, but reversal buys last week's losers, which have wider spreads, and pays about 4.6 bps per dollar traded. Its net Sharpe reaches zero at about 10 bps.
-- **Bid-ask bounce.** Trading one day later cuts the gross Sharpe from 0.26 to 0.18 and the net Sharpe to 0.03. About a third of the edge is closing-price noise.
-- **Capacity.** With square-root market impact, the net Sharpe is −0.53 at $100M and −1.53 at $1B.
-- **Stability.** The net Sharpe is 0.00 in 2002–2009, 0.64 in 2010–2017 and −0.09 in 2018–2025.
-- **Alpha.** Five factors plus momentum leave an alpha of 0.05% a year (t = 0.02).
+- **Timing and bid-ask bounce.** Moving from the signal's own close to the next day's close cuts the gross Sharpe from 0.26 to 0.18; a further day costs little (0.16). The one-day drop is the signature of bid-ask bounce: a CRSP close can print at the bid or the ask, so "last week's losers" partly means "stocks that closed on the bid", and that part of the edge cannot be captured. About a third of the same-close edge is this noise.
+- **Costs.** The median quoted half-spread across stocks is 1.9 bps, but reversal buys last week's losers, which have wider spreads, and pays about 4.6 bps per dollar traded. Its net Sharpe reaches zero at about 6 bps.
+- **Capacity.** With square-root market impact, the net Sharpe is −0.60 at $100M and −1.59 at $1B.
+- **Stability.** The net Sharpe is −0.13 in 2002–2009, 0.41 in 2010–2017 and −0.03 in 2018–2025.
+- **Alpha.** Five factors plus momentum leave an alpha of −1.0% a year (t = −0.43).
 
-**Dollar-neutral is not market-neutral.** The equal-weight combination has a −80% drawdown because the low-risk signals put it long calm stocks and short high-beta ones. Its market beta is −0.52, and momentum (0.69) and profitability (0.73) exposures explain 78% of its variance:
+**Dollar-neutral is not market-neutral.** The equal-weight combination has a −85% drawdown because the low-risk signals put it long calm stocks and short high-beta ones. Its market beta is −0.53, and momentum (0.72) and profitability (0.70) exposures explain 77% of its variance:
 
 ![Drawdowns](figures/11_drawdowns.png)
 
 ## Limitations
 
 - Membership comes from a public file mapped to CRSP, not CRSP's own constituents table (not in this WRDS subscription); about 0.1% of member-days are unmatched, and the median count is 497 members a day.
-- Trades are assumed to execute at the closing price; the one-day lag test is the check on this.
+- Trades execute at the closing price one day after the signal, paying half the quoted spread; real closing-auction fills and intraday execution would differ. Run with `LAG=0` for the same-close benchmark.
 - Impact uses the square-root rule with k = 1; real impact varies by stock, time and execution.
 - The borrow fee is a flat 25 bps a year; some stocks cost far more to short.
 - Idiosyncratic volatility uses a market model, not the three-factor model of the original paper.
-- Portfolios are equal-weighted within quintiles and not beta-neutral; a beta-neutral version is a natural next test (and would be exploratory, since it was not pre-registered).
+- Portfolios are equal-weighted within quintiles and not beta-neutral; a beta-neutral version is a natural next test (and would be exploratory, since it was not in the original plan).
 
 ## Reproduce
 
