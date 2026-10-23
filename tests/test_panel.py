@@ -49,19 +49,23 @@ def test_membership_mask_uses_membership_in_force_on_each_date():
         {"tickers": [{"AAA"}, {"BBB"}]},
         index=pd.to_datetime(["2024-01-02", "2024-01-04"]),
     )
-
     result = membership_mask(
         membership,
-        pd.to_datetime(["2024-01-01", "2024-01-03", "2024-01-04"]),
+        pd.to_datetime(["2024-01-02", "2024-01-03", "2024-01-04"]),
         ["AAA", "BBB"],
     )
+    assert result.loc["2024-01-02"].tolist() == [True, False]
+    assert result.loc["2024-01-03"].tolist() == [True, False]   # still the 01-02 row
+    assert result.loc["2024-01-04"].tolist() == [False, True]   # change counts on its own day
 
-    assert result.values.tolist() == [
-        [False, False],
-        [True, False],
-        [False, True],
-    ]
 
+def test_membership_mask_rejects_dates_before_data():
+    membership = pd.DataFrame(
+        {"tickers": [{"AAA"}]},
+        index=pd.to_datetime(["2024-01-02"]),
+    )
+    with pytest.raises(ValueError):
+        membership_mask(membership, pd.to_datetime(["2024-01-01"]), ["AAA"])
 
 def test_coverage_by_year_counts_only_member_days_with_prices():
     dates = pd.to_datetime(["2024-01-02", "2024-01-03"])
