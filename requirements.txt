@@ -6,3 +6,4 @@ yfinance
 pyarrow
 scikit-learn
 lightgbm
+matplotlib
